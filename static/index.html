@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Google Keep → Apple Notes (.enex)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; }
+  #dropzone { border: 2px dashed #888; border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; margin: 16px 0; }
+  #dropzone.over { background: rgba(0,122,255,0.1); border-color: #0a84ff; }
+  #filelist { list-style: none; padding: 0; max-height: 160px; overflow: auto; }
+  #filelist li { display: flex; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid #0002; }
+  #filelist li .x { cursor: pointer; color: #c00; }
+  label { display: block; margin: 12px 0; }
+  button { font-size: 1rem; padding: 10px 20px; border-radius: 8px; border: 0; background: #0a84ff; color: #fff; cursor: pointer; }
+  button:disabled { background: #888; cursor: default; }
+  #status { margin: 16px 0; }
+  .error { color: #c00; }
+  .ok { color: #070; }
+</style>
+</head>
+<body>
+<h1>Google Keep → Apple Notes (.enex)</h1>
+<div id="dropzone">📁 Перетащите файлы сюда<br><small>или нажмите для выбора · .zip архив или .json + картинки</small></div>
+<input type="file" id="fileinput" multiple style="display:none">
+<ul id="filelist"></ul>
+<label><input type="checkbox" id="include_trashed"> Включить удалённые (корзину)</label>
+<button id="convert" disabled>Конвертировать</button>
+<div id="status"></div>
+<a id="download" style="display:none"></a>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileinput = document.getElementById('fileinput');
+const filelist = document.getElementById('filelist');
+const convertBtn = document.getElementById('convert');
+const status = document.getElementById('status');
+let selected = [];
+
+function renderFiles() {
+  filelist.innerHTML = '';
+  selected.forEach((f, idx) => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span>' + f.name + ' (' + (f.size/1024).toFixed(0) + ' КБ)</span><span class="x" data-i="' + idx + '">✕</span>';
+    filelist.appendChild(li);
+  });
+  filelist.querySelectorAll('.x').forEach(x => x.onclick = e => { selected.splice(+e.target.dataset.i, 1); renderFiles(); refresh(); });
+}
+function addFiles(fl) { for (const f of fl) selected.push(f); renderFiles(); refresh(); }
+function refresh() { convertBtn.disabled = selected.length === 0; }
+
+dropzone.onclick = () => fileinput.click();
+fileinput.onchange = () => addFiles(fileinput.files);
+['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('over'); }));
+dropzone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+convertBtn.onclick = async () => {
+  const hasZip = selected.some(f => f.name.toLowerCase().endsWith('.zip'));
+  let files = selected;
+  if (hasZip) {
+    files = selected.filter(f => f.name.toLowerCase().endsWith('.zip'));
+    status.innerHTML = '<small>Загружен архив, отдельные файлы игнорируются.</small>';
+  }
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  if (document.getElementById('include_trashed').checked) fd.append('include_trashed', '1');
+  convertBtn.disabled = true;
+  status.innerHTML = '⏳ Конвертация... (не закрывайте страницу)';
+  try {
+    const resp = await fetch('/convert', { method: 'POST', body: fd });
+    if (resp.ok && resp.headers.get('Content-Type').includes('octet-stream')) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.getElementById('download');
+      a.href = url; a.download = 'GoogleKeep.enex'; a.click();
+      const notes = resp.headers.get('X-Notes') || '?';
+      const atts = resp.headers.get('X-Attachments') || '?';
+      status.innerHTML = '<span class="ok">✅ Готово! Обработано ' + notes + ' заметок, ' + atts + ' вложений, ' + (blob.size/1048576).toFixed(1) + ' МБ</span><br><button onclick="location.reload()">Конвертировать ещё</button>';
+    } else {
+      let msg = 'Ошибка ' + resp.status;
+      try { const j = await resp.json(); msg = j.error + (j.detail ? ' (' + j.detail + ')' : ''); } catch (_) {}
+      status.innerHTML = '<span class="error">❌ ' + msg + '</span><br><button onclick="location.reload()">Попробовать снова</button>';
+    }
+  } catch (e) {
+    status.innerHTML = '<span class="error">❌ Не удалось связаться с сервером: ' + e + '</span>';
+  }
+  convertBtn.disabled = false;
+};
+</script>
+</body>
+</html>

@@ -283,17 +283,9 @@ def build_enex(notes_xml):
     return f"{header}\n{doctype}\n{root_open}\n{''.join(notes_xml)}\n</en-export>"
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(
-        description="Конвертер Google Keep Takeout → ENEX (для Apple Notes)."
-    )
-    parser.add_argument("keep_dir", help="папка выгрузки Google Keep")
-    parser.add_argument("output", help="выходной файл .enex")
-    parser.add_argument("--include-trashed", action="store_true", help="включить удалённые заметки")
-    parser.add_argument("--verbose", action="store_true", help="печатать прогресс")
-    args = parser.parse_args(argv)
-
-    json_files = sorted(glob.glob(os.path.join(args.keep_dir, "*.json")))
+def convert_directory(keep_dir, output_path, include_trashed=False, verbose=False, progress_cb=None):
+    """Ядро конверсии: папка Keep → output.enex. Возвращает dict-отчёт."""
+    json_files = sorted(glob.glob(os.path.join(keep_dir, "*.json")))
 
     notes_xml = []
     n_processed = 0
@@ -306,38 +298,70 @@ def main(argv=None):
         try:
             note = parse_note(json_path)
         except Exception as exc:
-            if args.verbose:
+            if verbose:
                 print(f"SKIP (ошибка парсинга): {json_path}: {exc}")
+            if progress_cb:
+                progress_cb(i + 1, total)
             continue
 
-        if note.is_trashed and not args.include_trashed:
+        if note.is_trashed and not include_trashed:
             n_trashed += 1
+            if progress_cb:
+                progress_cb(i + 1, total)
             continue
 
         if note.attachments:
             n_with_attachments += 1
         for att in note.attachments:
             fname = att.get("filePath", "") or ""
-            if not os.path.isfile(os.path.join(args.keep_dir, fname)):
+            if not os.path.isfile(os.path.join(keep_dir, fname)):
                 n_missing_attachments += 1
 
-        notes_xml.append(note_to_xml(note, args.keep_dir))
+        notes_xml.append(note_to_xml(note, keep_dir))
         n_processed += 1
 
-        if args.verbose and (i + 1) % 50 == 0:
+        if verbose and (i + 1) % 50 == 0:
             print(f"  ...{i + 1}/{total}")
+        if progress_cb:
+            progress_cb(i + 1, total)
 
     enex = build_enex(notes_xml)
-    with open(args.output, "w", encoding="utf-8") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(enex)
 
-    size = os.path.getsize(args.output)
+    size = os.path.getsize(output_path)
+    return {
+        "processed": n_processed,
+        "with_attachments": n_with_attachments,
+        "trashed": n_trashed,
+        "missing_attachments": n_missing_attachments,
+        "size_bytes": size,
+        "output_path": output_path,
+    }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Конвертер Google Keep Takeout → ENEX (для Apple Notes)."
+    )
+    parser.add_argument("keep_dir", help="папка выгрузки Google Keep")
+    parser.add_argument("output", help="выходной файл .enex")
+    parser.add_argument("--include-trashed", action="store_true", help="включить удалённые заметки")
+    parser.add_argument("--verbose", action="store_true", help="печатать прогресс")
+    args = parser.parse_args(argv)
+
+    report = convert_directory(
+        args.keep_dir,
+        args.output,
+        include_trashed=args.include_trashed,
+        verbose=args.verbose,
+    )
     print("Готово.")
-    print(f"  Заметок обработано: {n_processed}")
-    print(f"  С вложениями: {n_with_attachments}")
-    print(f"  Пропущено (корзина): {n_trashed}")
-    print(f"  Вложений не найдено: {n_missing_attachments}")
-    print(f"  Размер файла: {size} байт")
+    print(f"  Заметок обработано: {report['processed']}")
+    print(f"  С вложениями: {report['with_attachments']}")
+    print(f"  Пропущено (корзина): {report['trashed']}")
+    print(f"  Вложений не найдено: {report['missing_attachments']}")
+    print(f"  Размер файла: {report['size_bytes']} байт")
     return 0
 
 

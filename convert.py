@@ -165,6 +165,30 @@ def render_annotations(annotations):
     return "".join(parts)
 
 
+def render_body(note):
+    """Собрать тело <en-note> (без медиа). Порядок: labels, content, annotations."""
+    blocks = []
+
+    labels_html = render_labels(note.labels)
+    if labels_html:
+        blocks.append(labels_html)
+
+    if note.list_content:
+        blocks.append(render_checklist(note.list_content))
+    else:
+        sanitized = sanitize_html(note.text_content_html)
+        if sanitized.strip():
+            blocks.append(sanitized)
+        else:
+            blocks.append(render_text(note.text_content))
+
+    annotations_html = render_annotations(note.annotations)
+    if annotations_html:
+        blocks.append(annotations_html)
+
+    return "".join(blocks)
+
+
 def format_timestamp(usec):
     """Микросекунды (UTC) -> 'YYYYMMDDTHHMMSSZ'. Пустой/0 -> текущее время UTC."""
     if not usec:

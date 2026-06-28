@@ -85,6 +85,30 @@ def sanitize_html(html_text):
     return sanitizer.result()
 
 
+def render_text(text):
+    """Чистый текст -> последовательность <div>-абзацев (ENML-совместимо)."""
+    if not text:
+        return ""
+    parts = []
+    for line in text.split("\n"):
+        if line == "":
+            parts.append("<div><br/></div>")
+        else:
+            parts.append(f"<div>{html.escape(line)}</div>")
+    return "".join(parts)
+
+
+def render_checklist(items):
+    """listContent Keep -> <ul> с символами ☑/☐ перед текстом пункта."""
+    parts = ["<ul>"]
+    for item in items:
+        mark = "☑" if item.get("isChecked", False) else "☐"
+        text = item.get("text", "") or ""
+        parts.append(f"<li>{mark} {html.escape(text)}</li>")
+    parts.append("</ul>")
+    return "".join(parts)
+
+
 def format_timestamp(usec):
     """Микросекунды (UTC) -> 'YYYYMMDDTHHMMSSZ'. Пустой/0 -> текущее время UTC."""
     if not usec:

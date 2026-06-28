@@ -90,6 +90,29 @@ def parse_multipart(body, content_type):
 
 
 def main(argv=None):
+    import argparse
+    import threading
+    import webbrowser
+    import time
+    parser = argparse.ArgumentParser(description="Веб-интерфейс конвертера Google Keep → ENEX.")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    args = parser.parse_args(argv)
+
+    httpd = ThreadingHTTPServer((args.host, args.port), KeepHandler)
+    url = f"http://{args.host}:{args.port}/"
+    print(f"Сервер запущен: {url}  (Ctrl+C для остановки)")
+    if not args.no_browser:
+        def _open():
+            time.sleep(0.5)
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nОстановка...")
+        httpd.shutdown()
     return 0
 
 

@@ -109,6 +109,28 @@ def render_checklist(items):
     return "".join(parts)
 
 
+def render_labels(labels):
+    """labels Keep -> блок '#тег #тег' серым в начале тела."""
+    if not labels:
+        return ""
+    tags = " ".join("#" + (lbl.get("name", "")).strip() for lbl in labels)
+    return f'<div style="color:#999">🏷 {html.escape(tags)}</div><div><br/></div>'
+
+
+def render_annotations(annotations):
+    """annotations Keep -> блок кликабельных ссылок в конце тела."""
+    if not annotations:
+        return ""
+    parts = ['<div><br/></div>', '<div style="color:#999">Ссылки:</div>']
+    for ann in annotations:
+        url = ann.get("url", "") or ""
+        title = ann.get("title", "") or url or "ссылка"
+        parts.append(
+            f'<div><a href="{html.escape(url, quote=True)}">{html.escape(title)}</a></div>'
+        )
+    return "".join(parts)
+
+
 def format_timestamp(usec):
     """Микросекунды (UTC) -> 'YYYYMMDDTHHMMSSZ'. Пустой/0 -> текущее время UTC."""
     if not usec:

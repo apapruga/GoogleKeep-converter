@@ -60,5 +60,39 @@ def test_find_keep_root_no_json_returns_none():
     assert server.find_keep_root(d) is None
 
 
+def test_extract_zip_to_flat():
+    import io, tempfile, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("a.json", '{"title":"A"}')
+        z.writestr("img.png", "PNG")
+    dest = tempfile.mkdtemp()
+    root = server.extract_zip_to(buf.getvalue(), dest)
+    assert root == dest
+    assert os.path.isfile(os.path.join(dest, "a.json"))
+
+
+def test_extract_zip_to_nested_returns_keep_root():
+    import io, tempfile, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Google Keep/a.json", '{"title":"A"}')
+        z.writestr("Google Keep/b.json", '{"title":"B"}')
+    dest = tempfile.mkdtemp()
+    root = server.extract_zip_to(buf.getvalue(), dest)
+    assert root == os.path.join(dest, "Google Keep")
+    assert os.path.isfile(os.path.join(root, "a.json"))
+
+
+def test_extract_zip_to_bad_zip():
+    import tempfile
+    dest = tempfile.mkdtemp()
+    try:
+        server.extract_zip_to(b"not a zip", dest)
+        assert False, "должно бросить"
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     run(sys.modules[__name__])

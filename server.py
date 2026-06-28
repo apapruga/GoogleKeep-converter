@@ -27,6 +27,20 @@ def find_keep_root(tempdir):
     return common
 
 
+def extract_zip_to(zip_bytes, dest):
+    """Распаковать zip-байты в dest. Вернуть корень Keep (через find_keep_root).
+    Бросает ValueError, если архив битый."""
+    import io
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            zf.extractall(dest)
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"Не удалось распаковать архив: {exc}") from exc
+    root = find_keep_root(dest)
+    return root if root else dest
+
+
 def main(argv=None):
     return 0
 

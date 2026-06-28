@@ -240,6 +240,37 @@ def format_timestamp(usec):
     return dt.strftime("%Y%m%dT%H%M%SZ")
 
 
+NOTE_CONTENT_PREAMBLE = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/evernote-compat3.dtd">'
+)
+
+
+def note_to_xml(note, base_dir):
+    """Полный <note>: title, content (CDATA en-note), created/updated, resources."""
+    title = xml_text_escape(note.title if note.title else note.source_name)
+    created = format_timestamp(note.created_usec)
+    updated = format_timestamp(note.edited_usec)
+
+    body = render_body(note)
+    media_html, resources_xml = media_and_resources(note, base_dir)
+    inner = body + media_html
+
+    content = f"{NOTE_CONTENT_PREAMBLE}<en-note>{inner}</en-note>"
+
+    parts = [
+        "<note>",
+        f"<title>{title}</title>",
+        f"<content><![CDATA[{content}]]></content>",
+        f"<created>{created}</created>",
+        f"<updated>{updated}</updated>",
+        "<note-attributes><source>Google Keep</source></note-attributes>",
+        resources_xml,
+        "</note>",
+    ]
+    return "".join(parts)
+
+
 def main(argv=None):
     return 0
 

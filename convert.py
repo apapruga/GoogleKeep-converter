@@ -271,6 +271,18 @@ def note_to_xml(note, base_dir):
     return "".join(parts)
 
 
+def build_enex(notes_xml):
+    """Собрать корневой export.enex из списка строк <note>...</note>."""
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    header = '<?xml version="1.0" encoding="UTF-8"?>'
+    doctype = '<!DOCTYPE en-export SYSTEM "http://xml.evernote.com/pub/evernote-export3.dtd">'
+    root_open = (
+        f'<en-export export-date="{now}" '
+        'application="GoogleKeep Converter" version="1.0">'
+    )
+    return f"{header}\n{doctype}\n{root_open}\n{''.join(notes_xml)}\n</en-export>"
+
+
 def main(argv=None):
     return 0
 

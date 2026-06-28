@@ -12,6 +12,40 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 
 
+@dataclass
+class Note:
+    title: str = ""
+    text_content: str = ""
+    text_content_html: str = ""
+    list_content: list = field(default_factory=list)
+    labels: list = field(default_factory=list)
+    annotations: list = field(default_factory=list)
+    attachments: list = field(default_factory=list)
+    created_usec: int = 0
+    edited_usec: int = 0
+    is_trashed: bool = False
+    source_name: str = ""
+
+
+def parse_note(json_path):
+    """Прочитать .json выгрузки Keep в Note."""
+    with open(json_path, "r", encoding="utf-8") as f:
+        d = json.load(f)
+    return Note(
+        title=(d.get("title") or "").strip(),
+        text_content=d.get("textContent") or "",
+        text_content_html=d.get("textContentHtml") or "",
+        list_content=d.get("listContent") or [],
+        labels=d.get("labels") or [],
+        annotations=d.get("annotations") or [],
+        attachments=d.get("attachments") or [],
+        created_usec=d.get("createdTimestampUsec") or 0,
+        edited_usec=d.get("userEditedTimestampUsec") or 0,
+        is_trashed=bool(d.get("isTrashed")),
+        source_name=os.path.splitext(os.path.basename(json_path))[0],
+    )
+
+
 def xml_text_escape(text):
     """Экранирование &, <, > для текстовых XML-узлов (заголовок заметки)."""
     return html.escape(text or "", quote=False)

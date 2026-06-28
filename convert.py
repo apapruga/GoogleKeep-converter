@@ -284,6 +284,60 @@ def build_enex(notes_xml):
 
 
 def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Конвертер Google Keep Takeout → ENEX (для Apple Notes)."
+    )
+    parser.add_argument("keep_dir", help="папка выгрузки Google Keep")
+    parser.add_argument("output", help="выходной файл .enex")
+    parser.add_argument("--include-trashed", action="store_true", help="включить удалённые заметки")
+    parser.add_argument("--verbose", action="store_true", help="печатать прогресс")
+    args = parser.parse_args(argv)
+
+    json_files = sorted(glob.glob(os.path.join(args.keep_dir, "*.json")))
+
+    notes_xml = []
+    n_processed = 0
+    n_trashed = 0
+    n_with_attachments = 0
+    n_missing_attachments = 0
+    total = len(json_files)
+
+    for i, json_path in enumerate(json_files):
+        try:
+            note = parse_note(json_path)
+        except Exception as exc:
+            if args.verbose:
+                print(f"SKIP (ошибка парсинга): {json_path}: {exc}")
+            continue
+
+        if note.is_trashed and not args.include_trashed:
+            n_trashed += 1
+            continue
+
+        if note.attachments:
+            n_with_attachments += 1
+        for att in note.attachments:
+            fname = att.get("filePath", "") or ""
+            if not os.path.isfile(os.path.join(args.keep_dir, fname)):
+                n_missing_attachments += 1
+
+        notes_xml.append(note_to_xml(note, args.keep_dir))
+        n_processed += 1
+
+        if args.verbose and (i + 1) % 50 == 0:
+            print(f"  ...{i + 1}/{total}")
+
+    enex = build_enex(notes_xml)
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(enex)
+
+    size = os.path.getsize(args.output)
+    print("Готово.")
+    print(f"  Заметок обработано: {n_processed}")
+    print(f"  С вложениями: {n_with_attachments}")
+    print(f"  Пропущено (корзина): {n_trashed}")
+    print(f"  Вложений не найдено: {n_missing_attachments}")
+    print(f"  Размер файла: {size} байт")
     return 0
 
 

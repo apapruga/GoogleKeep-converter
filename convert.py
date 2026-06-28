@@ -165,6 +165,49 @@ def render_annotations(annotations):
     return "".join(parts)
 
 
+MIME_BY_EXTENSION = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+}
+
+
+def _mime_for(filename, mimetype):
+    if mimetype:
+        return mimetype
+    ext = os.path.splitext(filename)[1].lower()
+    return MIME_BY_EXTENSION.get(ext, "application/octet-stream")
+
+
+def media_and_resources(note, base_dir):
+    """Вернуть (media_html, resources_xml) для attachments заметки."""
+    media_parts = []
+    resource_parts = []
+    for att in note.attachments:
+        fname = att.get("filePath", "") or ""
+        path = os.path.join(base_dir, fname)
+        if not os.path.isfile(path):
+            media_parts.append(f"<div>[Вложение отсутствует: {html.escape(fname)}]</div>")
+            continue
+        with open(path, "rb") as fh:
+            data = fh.read()
+        digest = hashlib.md5(data).hexdigest()
+        mime = _mime_for(fname, att.get("mimetype", ""))
+        media_parts.append(f'<en-media type="{mime}" hash="{digest}"/>')
+        b64 = base64.b64encode(data).decode("ascii")
+        resource_parts.append(
+            "<resource>"
+            f'<data encoding="base64">{b64}</data>'
+            f"<mime>{mime}</mime>"
+            "<resource-attributes>"
+            f"<file-name>{html.escape(os.path.basename(fname))}</file-name>"
+            "</resource-attributes>"
+            "</resource>"
+        )
+    return "".join(media_parts), "".join(resource_parts)
+
+
 def render_body(note):
     """Собрать тело <en-note> (без медиа). Порядок: labels, content, annotations."""
     blocks = []

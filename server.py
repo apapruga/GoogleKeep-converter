@@ -46,6 +46,49 @@ def extract_zip_to(zip_bytes, dest):
     return root if root else dest
 
 
+class _ClientError(Exception):
+    """Ошибка, которую нужно вернуть клиенту как 400."""
+
+
+def parse_multipart(body, content_type):
+    """Разобрать multipart-тело. Вернуть (list[dict(name,data)], include_trashed:bool).
+    Каждое поле-файл: {'name':..., 'data':bytes}. Поле include_trashed -> bool."""
+    files = []
+    include_trashed = False
+    # граница
+    if "boundary=" not in content_type:
+        return files, include_trashed
+    boundary = content_type.split("boundary=", 1)[1].strip()
+    if boundary.startswith('"') and boundary.endswith('"'):
+        boundary = boundary[1:-1]
+    delim = b"--" + boundary.encode()
+    chunks = body.split(delim)
+    for chunk in chunks:
+        if not chunk or chunk == b"--" or chunk == b"--\r\n" or chunk.startswith(b"--"):
+            continue
+        chunk = chunk.strip(b"\r\n")
+        if b"\r\n\r\n" not in chunk:
+            continue
+        header_blob, _, data = chunk.partition(b"\r\n\r\n")
+        headers = header_blob.decode("utf-8", "replace")
+        name = None
+        filename = None
+        for line in headers.split("\r\n"):
+            low = line.lower()
+            if low.startswith("content-disposition:"):
+                for part in line.split(";"):
+                    part = part.strip()
+                    if part.startswith("name="):
+                        name = part[5:].strip('"')
+                    elif part.startswith("filename="):
+                        filename = part[9:].strip('"')
+        if filename is not None:
+            files.append({"name": filename, "data": data})
+        elif name == "include_trashed":
+            include_trashed = data.decode("utf-8", "replace").strip() in ("1", "true", "on")
+    return files, include_trashed
+
+
 def main(argv=None):
     return 0
 
@@ -66,6 +109,67 @@ class KeepHandler(BaseHTTPRequestHandler):
             self._serve_file(full, ctype or "application/octet-stream")
             return
         self._send_json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/convert":
+            self._send_json(404, {"error": "not found"})
+            return
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length > MAX_BODY_SIZE:
+            self._send_json(413, {"error": "Превышен лимит размера (200 МБ)"})
+            return
+        body = self.rfile.read(length)
+        try:
+            self._handle_convert(body)
+        except _ClientError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {"error": "Внутренняя ошибка сервера", "detail": str(exc)})
+
+    def _handle_convert(self, body):
+        import tempfile
+        import shutil
+        import convert as _convert
+        files, include_trashed = parse_multipart(body, self.headers.get("Content-Type", ""))
+        if not files:
+            raise _ClientError("Не найдено ни одного файла")
+
+        tmp = tempfile.mkdtemp()
+        try:
+            zips = [f for f in files if f["name"].lower().endswith(".zip")]
+            if zips:
+                root = None
+                for z in zips:
+                    root = extract_zip_to(z["data"], tmp) or root
+                keep_root = root
+            else:
+                for f in files:
+                    safe = sanitize_filename(f["name"])
+                    if not safe:
+                        continue
+                    with open(os.path.join(tmp, safe), "wb") as fh:
+                        fh.write(f["data"])
+                keep_root = find_keep_root(tmp)
+            if not keep_root:
+                raise _ClientError("Не найдено ни одного .json файла")
+
+            out = os.path.join(tmp, "out.enex")
+            report = _convert.convert_directory(keep_root, out, include_trashed=include_trashed)
+
+            with open(out, "rb") as fh:
+                data = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", 'attachment; filename="GoogleKeep.enex"')
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Notes", str(report["processed"]))
+            self.send_header("X-Attachments", str(report["with_attachments"]))
+            self.end_headers()
+            self.wfile.write(data)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def _serve_file(self, path, ctype):
         if not os.path.isfile(path):

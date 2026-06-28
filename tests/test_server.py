@@ -94,5 +94,73 @@ def test_extract_zip_to_bad_zip():
         pass
 
 
+def _build_multipart(fields):
+    """fields: {name: [(filename, bytes, ctype), ...]} или {name: value}."""
+    boundary = "keepbnd"
+    parts = []
+    for name, val in fields.items():
+        items = val if isinstance(val, list) else [(None, val, None)]
+        for filename, data, ctype in items:
+            parts.append(b"--" + boundary.encode())
+            if filename:
+                parts.append(b'Content-Disposition: form-data; name="' + name.encode() + b'"; filename="' + filename.encode() + b'"')
+                parts.append(b"Content-Type: " + ctype.encode())
+            else:
+                parts.append(b'Content-Disposition: form-data; name="' + name.encode() + b'"')
+            parts.append(b"")
+            parts.append(data if isinstance(data, bytes) else str(data).encode())
+    parts.append(b"--" + boundary.encode() + b"--")
+    parts.append(b"")
+    return b"\r\n".join(parts)
+
+
+def _start_server():
+    from http.server import ThreadingHTTPServer
+    import threading
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.KeepHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
+def test_post_convert_zip_returns_enex():
+    import io, urllib.request
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for fn in os.listdir(FIXTURES):
+            with open(os.path.join(FIXTURES, fn), "rb") as f:
+                z.writestr("Google Keep/" + fn, f.read())
+    body = _build_multipart({"files": [("keep.zip", buf.getvalue(), "application/zip")]})
+    req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+    resp = urllib.request.urlopen(req)
+    assert resp.status == 200
+    assert "octet-stream" in resp.headers.get("Content-Type", "")
+    assert resp.headers.get("X-Notes") == "4"
+    data = resp.read()
+    assert b"<en-export " in data
+    assert "☐ молоко".encode() in data
+    assert "☑ хлеб".encode() in data
+    httpd.shutdown()
+
+
+def test_post_convert_no_files_returns_400():
+    import urllib.request, urllib.error
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    body = _build_multipart({})
+    req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+    try:
+        urllib.request.urlopen(req)
+        assert False, "должен быть 400"
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+    httpd.shutdown()
+
+
 if __name__ == "__main__":
     run(sys.modules[__name__])

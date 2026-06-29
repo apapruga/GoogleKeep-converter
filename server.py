@@ -228,9 +228,17 @@ class KeepHandler(BaseHTTPRequestHandler):
         import tempfile
         import shutil
         import convert as _convert
-        files, include_trashed = parse_multipart(body, self.headers.get("Content-Type", ""))
+        files, options = parse_multipart(body, self.headers.get("Content-Type", ""))
         if not files:
             raise _ClientError("Не найдено ни одного файла")
+
+        # валидация настроек уменьшения
+        resized_count = 0
+        if options["resize_enabled"]:
+            if options["resize_threshold"] <= 0 or options["resize_scale"] not in (0.25, 0.5, 0.75):
+                raise _ClientError("Некорректные настройки уменьшения")
+            if not has_resize_deps():
+                raise _ClientError("Уменьшение картинок недоступно. Установите Pillow: pip install Pillow pillow-heif")
 
         tmp = tempfile.mkdtemp()
         try:
@@ -251,8 +259,12 @@ class KeepHandler(BaseHTTPRequestHandler):
             if not keep_root:
                 raise _ClientError("Не найдено ни одного .json файла")
 
+            if options["resize_enabled"]:
+                rreport = resize_directory(keep_root, options["resize_threshold"], options["resize_scale"])
+                resized_count = rreport["resized"]
+
             out = os.path.join(tmp, "out.enex")
-            report = _convert.convert_directory(keep_root, out, include_trashed=include_trashed)
+            report = _convert.convert_directory(keep_root, out, include_trashed=options["include_trashed"])
 
             with open(out, "rb") as fh:
                 data = fh.read()
@@ -262,6 +274,7 @@ class KeepHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("X-Notes", str(report["processed"]))
             self.send_header("X-Attachments", str(report["with_attachments"]))
+            self.send_header("X-Resized", str(resized_count))
             self.end_headers()
             self.wfile.write(data)
         finally:

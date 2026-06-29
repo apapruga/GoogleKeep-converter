@@ -230,5 +230,74 @@ def test_post_convert_no_files_returns_400():
     httpd.shutdown()
 
 
+def _zip_bytes(mapping):
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, content in mapping.items():
+            data = content.encode("utf-8") if isinstance(content, str) else content
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_post_convert_resize_without_deps_returns_400():
+    """Эмулируем отсутствие зависимостей → resize должен вернуть 400.
+    Проходит без Pillow (через monkeypatch has_resize_deps)."""
+    import urllib.request, urllib.error, json as _json
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    original = server.has_resize_deps
+    server.has_resize_deps = lambda: False
+    try:
+        body = _build_multipart({
+            "files": [("keep.zip", _zip_bytes({"a.json": '{"title":"A"}'}), "application/zip")],
+            "resize_enabled": "1",
+            "resize_threshold": "1048576",
+            "resize_scale": "0.5",
+        })
+        req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                     headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+        try:
+            urllib.request.urlopen(req)
+            assert False, "должен быть 400"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+            err = _json.loads(e.read().decode("utf-8"))
+            assert "Уменьшение" in err["error"] or "Pillow" in err["error"]
+    finally:
+        server.has_resize_deps = original
+        httpd.shutdown()
+
+
+def test_post_convert_with_resize_succeeds_when_deps_available():
+    if not server.has_resize_deps():
+        return "skip"
+    import io, urllib.request, zipfile
+    from PIL import Image
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    buf_png = io.BytesIO()
+    img = Image.new("RGB", (2000, 2000), (0, 128, 255))
+    img.save(buf_png, format="PNG")
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w") as z:
+        z.writestr("Google Keep/big.png", buf_png.getvalue())
+        z.writestr("Google Keep/note.json", '{"title":"N","attachments":[{"filePath":"big.png","mimetype":"image/png"}]}')
+    body = _build_multipart({
+        "files": [("k.zip", zbuf.getvalue(), "application/zip")],
+        "resize_enabled": "1",
+        "resize_threshold": "1",  # 1 байт → всё масштабируется
+        "resize_scale": "0.5",
+    })
+    req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+    resp = urllib.request.urlopen(req)
+    assert resp.status == 200
+    assert int(resp.headers.get("X-Resized", "0")) == 1
+    data = resp.read()
+    assert b"<en-export " in data
+    httpd.shutdown()
+
+
 if __name__ == "__main__":
     run(sys.modules[__name__])

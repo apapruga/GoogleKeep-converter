@@ -59,6 +59,49 @@ def has_resize_deps():
 RESIZE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".heic", ".gif")
 
 
+# Локализованные сообщения сервера. lang: 'ru' | 'en'.
+MESSAGES = {
+    "no_files": {
+        "ru": "Не найдено ни одного файла",
+        "en": "No files found",
+    },
+    "bad_resize_settings": {
+        "ru": "Некорректные настройки уменьшения",
+        "en": "Invalid image resize settings",
+    },
+    "resize_no_deps": {
+        "ru": "Уменьшение картинок недоступно. Установите Pillow: pip install Pillow pillow-heif",
+        "en": "Image resizing is unavailable. Install Pillow: pip install Pillow pillow-heif",
+    },
+    "no_json": {
+        "ru": "Не найдено ни одного .json файла",
+        "en": "No .json files found",
+    },
+    "too_large": {
+        "ru": "Превышен лимит размера (200 МБ)",
+        "en": "Size limit exceeded (200 MB)",
+    },
+    "internal": {
+        "ru": "Внутренняя ошибка сервера",
+        "en": "Internal server error",
+    },
+    "not_found": {
+        "ru": "не найдено",
+        "en": "not found",
+    },
+    "forbidden": {
+        "ru": "доступ запрещён",
+        "en": "forbidden",
+    },
+}
+
+
+def MSG(key, lang="ru"):
+    """Локализованное сообщение. Падает на 'ru', если lang неизвестен."""
+    entry = MESSAGES.get(key, {})
+    return entry.get(lang) or entry.get("ru") or key
+
+
 def resize_directory(keep_dir, threshold_bytes, scale):
     """Уменьшить картинки в keep_dir крупнее threshold_bytes до scale от габаритов.
     Возвращает dict-отчёт: {scanned, resized, skipped, errors}."""
@@ -107,6 +150,7 @@ def parse_multipart(body, content_type):
         "resize_enabled": False,
         "resize_threshold": 0,
         "resize_scale": 0.5,
+        "lang": "ru",
     }
     if "boundary=" not in content_type:
         return files, options
@@ -158,6 +202,9 @@ def parse_multipart(body, content_type):
         options["resize_scale"] = float(_str("resize_scale")) if _str("resize_scale") else 0.5
     except ValueError:
         pass
+    lang_value = _str("lang")
+    if lang_value in ("ru", "en"):
+        options["lang"] = lang_value
 
     return files, options
 
@@ -190,7 +237,15 @@ def main(argv=None):
 
 
 class KeepHandler(BaseHTTPRequestHandler):
+    lang = "ru"  # язык ответа по умолчанию (до разбора запроса)
+
+    def _header_lang(self):
+        """Язык из заголовка Accept-Language (запасной вариант до разбора FormData)."""
+        al = (self.headers.get("Accept-Language", "") or "").lower()
+        return "en" if al[:2] == "en" else "ru"
+
     def do_GET(self):
+        self.lang = self._header_lang()
         if self.path == "/" or self.path == "/index.html":
             self._serve_file(os.path.join(STATIC_DIR, "index.html"), "text/html; charset=utf-8")
             return
@@ -199,20 +254,21 @@ class KeepHandler(BaseHTTPRequestHandler):
             full = os.path.join(STATIC_DIR, rel)
             # защита от выхода за static
             if not os.path.abspath(full).startswith(STATIC_DIR):
-                self._send_json(403, {"error": "forbidden"})
+                self._send_json(403, {"error": MSG("forbidden", self.lang)})
                 return
             ctype, _ = mimetypes.guess_type(full)
             self._serve_file(full, ctype or "application/octet-stream")
             return
-        self._send_json(404, {"error": "not found"})
+        self._send_json(404, {"error": MSG("not_found", self.lang)})
 
     def do_POST(self):
+        self.lang = self._header_lang()
         if self.path != "/convert":
-            self._send_json(404, {"error": "not found"})
+            self._send_json(404, {"error": MSG("not_found", self.lang)})
             return
         length = int(self.headers.get("Content-Length", 0) or 0)
         if length > MAX_BODY_SIZE:
-            self._send_json(413, {"error": "Превышен лимит размера (200 МБ)"})
+            self._send_json(413, {"error": MSG("too_large", self.lang)})
             return
         body = self.rfile.read(length)
         try:
@@ -222,23 +278,25 @@ class KeepHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            self._send_json(500, {"error": "Внутренняя ошибка сервера", "detail": str(exc)})
+            self._send_json(500, {"error": MSG("internal", self.lang), "detail": str(exc)})
 
     def _handle_convert(self, body):
         import tempfile
         import shutil
         import convert as _convert
         files, options = parse_multipart(body, self.headers.get("Content-Type", ""))
+        # язык из FormData имеет приоритет над заголовком — используется и в обработчиках 500
+        lang = self.lang = options["lang"]
         if not files:
-            raise _ClientError("Не найдено ни одного файла")
+            raise _ClientError(MSG("no_files", lang))
 
         # валидация настроек уменьшения
         resized_count = 0
         if options["resize_enabled"]:
             if options["resize_threshold"] <= 0 or options["resize_scale"] not in (0.25, 0.5, 0.75):
-                raise _ClientError("Некорректные настройки уменьшения")
+                raise _ClientError(MSG("bad_resize_settings", lang))
             if not has_resize_deps():
-                raise _ClientError("Уменьшение картинок недоступно. Установите Pillow: pip install Pillow pillow-heif")
+                raise _ClientError(MSG("resize_no_deps", lang))
 
         tmp = tempfile.mkdtemp()
         try:
@@ -257,7 +315,7 @@ class KeepHandler(BaseHTTPRequestHandler):
                         fh.write(f["data"])
                 keep_root = find_keep_root(tmp)
             if not keep_root:
-                raise _ClientError("Не найдено ни одного .json файла")
+                raise _ClientError(MSG("no_json", lang))
 
             if options["resize_enabled"]:
                 rreport = resize_directory(keep_root, options["resize_threshold"], options["resize_scale"])
@@ -282,7 +340,7 @@ class KeepHandler(BaseHTTPRequestHandler):
 
     def _serve_file(self, path, ctype):
         if not os.path.isfile(path):
-            self._send_json(404, {"error": "not found"})
+            self._send_json(404, {"error": MSG("not_found", self.lang)})
             return
         with open(path, "rb") as f:
             data = f.read()

@@ -299,5 +299,89 @@ def test_post_convert_with_resize_succeeds_when_deps_available():
     httpd.shutdown()
 
 
+def test_parse_multipart_lang_default_ru():
+    files, options = server.parse_multipart(b"--b--\r\n", "multipart/form-data; boundary=b")
+    assert options["lang"] == "ru"
+
+
+def test_parse_multipart_lang_en():
+    body = (
+        b"--keepbnd\r\n"
+        b'Content-Disposition: form-data; name="lang"\r\n\r\n'
+        b"en\r\n"
+        b"--keepbnd--\r\n"
+    )
+    files, options = server.parse_multipart(body, "multipart/form-data; boundary=keepbnd")
+    assert options["lang"] == "en"
+
+
+def test_msg_falls_back_to_ru_for_unknown_lang():
+    assert server.MSG("no_files", "de") == server.MESSAGES["no_files"]["ru"]
+    assert server.MSG("no_files", "en") == "No files found"
+    assert server.MSG("unknown_key", "en") == "unknown_key"
+
+
+def test_post_convert_no_files_error_localized_en():
+    import urllib.request, urllib.error, json as _json
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    body = _build_multipart({"lang": "en"})
+    req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+    try:
+        urllib.request.urlopen(req)
+        assert False, "должен быть 400"
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+        err = _json.loads(e.read().decode("utf-8"))
+        assert err["error"] == "No files found"
+    httpd.shutdown()
+
+
+def test_post_convert_resize_without_deps_localized_en():
+    import urllib.request, urllib.error, json as _json
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    original = server.has_resize_deps
+    server.has_resize_deps = lambda: False
+    try:
+        body = _build_multipart({
+            "files": [("keep.zip", _zip_bytes({"a.json": '{"title":"A"}'}), "application/zip")],
+            "resize_enabled": "1",
+            "resize_threshold": "1048576",
+            "resize_scale": "0.5",
+            "lang": "en",
+        })
+        req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                     headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+        try:
+            urllib.request.urlopen(req)
+            assert False, "должен быть 400"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+            err = _json.loads(e.read().decode("utf-8"))
+            assert "Pillow" in err["error"] and "unavailable" in err["error"]
+    finally:
+        server.has_resize_deps = original
+        httpd.shutdown()
+
+
+def test_post_convert_error_defaults_ru_without_lang():
+    import urllib.request, urllib.error, json as _json
+    httpd = _start_server()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    body = _build_multipart({})
+    req = urllib.request.Request(base + "/convert", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=keepbnd"})
+    try:
+        urllib.request.urlopen(req)
+        assert False, "должен быть 400"
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+        err = _json.loads(e.read().decode("utf-8"))
+        assert err["error"] == "Не найдено ни одного файла"
+    httpd.shutdown()
+
+
 if __name__ == "__main__":
     run(sys.modules[__name__])

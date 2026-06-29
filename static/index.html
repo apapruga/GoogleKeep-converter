@@ -198,6 +198,7 @@ convertBtn.onclick = async () => {
     status.innerHTML = '<small>' + t('zip_priority') + '</small>';
   }
   const fd = new FormData();
+  fd.append('lang', LANG);
   for (const f of files) fd.append('files', f);
   if (document.getElementById('include_trashed').checked) fd.append('include_trashed', '1');
   if (resizeCheckbox.checked && resizeApplied) {

@@ -56,6 +56,43 @@ def has_resize_deps():
         return False
 
 
+RESIZE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".heic", ".gif")
+
+
+def resize_directory(keep_dir, threshold_bytes, scale):
+    """Уменьшить картинки в keep_dir крупнее threshold_bytes до scale от габаритов.
+    Возвращает dict-отчёт: {scanned, resized, skipped, errors}."""
+    from PIL import Image
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+
+    report = {"scanned": 0, "resized": 0, "skipped": 0, "errors": 0}
+    # соберём кандидатов (по расширению, нижний регистр)
+    candidates = []
+    for root, _dirs, files in os.walk(keep_dir):
+        for fn in files:
+            ext = os.path.splitext(fn)[1].lower()
+            if ext in RESIZE_EXTENSIONS:
+                candidates.append(os.path.join(root, fn))
+
+    for path in sorted(candidates):
+        report["scanned"] += 1
+        try:
+            if os.path.getsize(path) <= threshold_bytes:
+                report["skipped"] += 1
+                continue
+            with Image.open(path) as im:
+                fmt = im.format
+                new_size = (max(1, int(im.width * scale)), max(1, int(im.height * scale)))
+                resized = im.resize(new_size, Image.LANCZOS)
+                resized.save(path, format=fmt)
+            report["resized"] += 1
+        except Exception as exc:
+            print(f"RESIZE ERROR {path}: {exc}")
+            report["errors"] += 1
+    return report
+
+
 class _ClientError(Exception):
     """Ошибка, которую нужно вернуть клиенту как 400."""
 

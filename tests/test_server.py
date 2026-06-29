@@ -44,6 +44,42 @@ def test_parse_multipart_resize_fields():
     assert options["resize_scale"] == 0.25
 
 
+def _make_png(path, size_px):
+    from PIL import Image
+    img = Image.new("RGB", (size_px, size_px), (255, 0, 0))
+    img.save(path, format="PNG")
+
+
+def test_resize_directory_skips_small_files():
+    if not server.has_resize_deps():
+        return "skip"
+    import os, tempfile
+    d = tempfile.mkdtemp()
+    small = os.path.join(d, "small.png")
+    _make_png(small, 100)
+    before = open(small, "rb").read()
+    report = server.resize_directory(d, threshold_bytes=10 * 1024 * 1024, scale=0.5)
+    after = open(small, "rb").read()
+    assert report["resized"] == 0
+    assert report["skipped"] == 1
+    assert before == after  # файл не изменён
+
+
+def test_resize_directory_resizes_large_file():
+    if not server.has_resize_deps():
+        return "skip"
+    import os, tempfile
+    from PIL import Image
+    d = tempfile.mkdtemp()
+    big = os.path.join(d, "big.png")
+    _make_png(big, 2000)
+    report = server.resize_directory(d, threshold_bytes=0, scale=0.5)
+    assert report["resized"] == 1
+    with Image.open(big) as im:
+        assert im.width == 1000 and im.height == 1000
+        assert im.format == "PNG"
+
+
 def test_sanitize_filename_strips_parent_dir():
     assert server.sanitize_filename("../evil.json") == "evil.json"
     assert server.sanitize_filename("a/../b.json") == "b.json"

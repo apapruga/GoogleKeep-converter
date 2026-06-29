@@ -27,6 +27,24 @@
 <input type="file" id="fileinput" multiple style="display:none">
 <ul id="filelist"></ul>
 <label><input type="checkbox" id="include_trashed"> Включить удалённые (корзину)</label>
+<label><input type="checkbox" id="resize_enabled"> Уменьшить картинки</label>
+<div id="resize_panel" style="display:none; margin-left:24px; padding:12px; border-left:2px solid #888;">
+  <div>Порог размера:</div>
+  <div style="margin:6px 0;">
+    <input type="number" id="resize_value" value="1" min="1" style="width:80px;">
+    <label style="display:inline;"><input type="radio" name="resize_unit" value="kb"> КБ</label>
+    <label style="display:inline;"><input type="radio" name="resize_unit" value="mb" checked> МБ</label>
+  </div>
+  <div>Степень уменьшения:</div>
+  <div style="margin:6px 0;">
+    <label style="display:inline;"><input type="radio" name="resize_scale" value="0.75"> 75%</label>
+    <label style="display:inline;"><input type="radio" name="resize_scale" value="0.5" checked> 50%</label>
+    <label style="display:inline;"><input type="radio" name="resize_scale" value="0.25"> 25%</label>
+  </div>
+  <button id="resize_apply" type="button">Применить</button>
+  <button id="resize_cancel" type="button">Отмена</button>
+  <div id="resize_summary" style="margin-top:8px; color:#666;"></div>
+</div>
 <button id="convert" disabled>Конвертировать</button>
 <div id="status"></div>
 <a id="download" style="display:none"></a>
@@ -57,6 +75,48 @@ fileinput.onchange = () => addFiles(fileinput.files);
 ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('over'); }));
 dropzone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
+// === Настройки уменьшения картинок ===
+const resizeCheckbox = document.getElementById('resize_enabled');
+const resizePanel = document.getElementById('resize_panel');
+const resizeApply = document.getElementById('resize_apply');
+const resizeCancel = document.getElementById('resize_cancel');
+const resizeSummary = document.getElementById('resize_summary');
+let resizeApplied = false;  // применил ли пользователь настройки
+
+function _resizeSummaryText() {
+  const v = document.getElementById('resize_value').value || '1';
+  const unit = document.querySelector('input[name=resize_unit]:checked').value;
+  const scale = document.querySelector('input[name=resize_scale]:checked').value;
+  const scalePct = ({'0.75':'75%','0.5':'50%','0.25':'25%'})[scale];
+  return '🖼 Порог >' + v + ' ' + unit.toUpperCase() + ' · масштаб ' + scalePct;
+}
+
+resizeCheckbox.onchange = () => {
+  if (resizeCheckbox.checked) {
+    resizePanel.style.display = 'block';
+    resizeApplied = false;
+    resizeSummary.textContent = 'Нажмите «Применить» для подтверждения.';
+  } else {
+    resizePanel.style.display = 'none';
+    resizeSummary.textContent = '';
+    resizeApplied = false;
+  }
+};
+
+resizeApply.onclick = () => {
+  const v = parseInt(document.getElementById('resize_value').value, 10);
+  if (!v || v < 1) return;  // защита
+  resizeApplied = true;
+  resizePanel.style.display = 'none';
+  resizeSummary.textContent = _resizeSummaryText();
+};
+
+resizeCancel.onclick = () => {
+  resizeApplied = false;
+  resizePanel.style.display = 'none';
+  resizeSummary.textContent = '';
+};
+
 convertBtn.onclick = async () => {
   const hasZip = selected.some(f => f.name.toLowerCase().endsWith('.zip'));
   let files = selected;
@@ -67,6 +127,15 @@ convertBtn.onclick = async () => {
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
   if (document.getElementById('include_trashed').checked) fd.append('include_trashed', '1');
+  if (resizeCheckbox.checked && resizeApplied) {
+    const v = parseInt(document.getElementById('resize_value').value, 10);
+    const unit = document.querySelector('input[name=resize_unit]:checked').value;
+    const scale = document.querySelector('input[name=resize_scale]:checked').value;
+    const bytes = unit === 'kb' ? v * 1024 : v * 1024 * 1024;
+    fd.append('resize_enabled', '1');
+    fd.append('resize_threshold', String(bytes));
+    fd.append('resize_scale', scale);
+  }
   convertBtn.disabled = true;
   status.innerHTML = '⏳ Конвертация... (не закрывайте страницу)';
   try {
@@ -78,7 +147,9 @@ convertBtn.onclick = async () => {
       a.href = url; a.download = 'GoogleKeep.enex'; a.click();
       const notes = resp.headers.get('X-Notes') || '?';
       const atts = resp.headers.get('X-Attachments') || '?';
-      status.innerHTML = '<span class="ok">✅ Готово! Обработано ' + notes + ' заметок, ' + atts + ' вложений, ' + (blob.size/1048576).toFixed(1) + ' МБ</span><br><button onclick="location.reload()">Конвертировать ещё</button>';
+      const resized = parseInt(resp.headers.get('X-Resized') || '0', 10);
+      const resizedLine = resized > 0 ? '<br>🖼 Уменьшено картинок: ' + resized : '';
+      status.innerHTML = '<span class="ok">✅ Готово! Обработано ' + notes + ' заметок, ' + atts + ' вложений, ' + (blob.size/1048576).toFixed(1) + ' МБ' + resizedLine + '</span><br><button onclick="location.reload()">Конвертировать ещё</button>';
     } else {
       let msg = 'Ошибка ' + resp.status;
       try { const j = await resp.json(); msg = j.error + (j.detail ? ' (' + j.detail + ')' : ''); } catch (_) {}

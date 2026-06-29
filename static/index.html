@@ -8,6 +8,9 @@
   :root { color-scheme: light dark; }
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
   h1 { font-size: 1.4rem; }
+  #langswitch { position: absolute; top: 16px; right: 16px; }
+  #langswitch button { background: transparent; color: inherit; border: 1px solid #888; padding: 4px 10px; font-size: 0.85rem; margin-left: 4px; }
+  #langswitch button.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }
   #dropzone { border: 2px dashed #888; border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; margin: 16px 0; }
   #dropzone.over { background: rgba(0,122,255,0.1); border-color: #0a84ff; }
   #filelist { list-style: none; padding: 0; max-height: 160px; overflow: auto; }
@@ -22,34 +25,104 @@
 </style>
 </head>
 <body>
-<h1>Google Keep → Apple Notes (.enex)</h1>
-<div id="dropzone">📁 Перетащите файлы сюда<br><small>или нажмите для выбора · .zip архив или .json + картинки</small></div>
+<div id="langswitch">
+  <button id="lang-ru" class="active" onclick="setLang('ru')">RUS</button>
+  <button id="lang-en" onclick="setLang('en')">ENG</button>
+</div>
+
+<h1 data-i18n="title">Google Keep → Apple Notes (.enex)</h1>
+<div id="dropzone"><span data-i18n="drop_line1">📁 Перетащите файлы сюда</span><br><small data-i18n="drop_line2">или нажмите для выбора · .zip архив или .json + картинки</small></div>
 <input type="file" id="fileinput" multiple style="display:none">
 <ul id="filelist"></ul>
-<label><input type="checkbox" id="include_trashed"> Включить удалённые (корзину)</label>
-<label><input type="checkbox" id="resize_enabled"> Уменьшить картинки</label>
+<label><input type="checkbox" id="include_trashed"> <span data-i18n="include_trashed">Включить удалённые (корзину)</span></label>
+<label><input type="checkbox" id="resize_enabled"> <span data-i18n="resize">Уменьшить картинки</span></label>
 <div id="resize_panel" style="display:none; margin-left:24px; padding:12px; border-left:2px solid #888;">
-  <div>Порог размера:</div>
+  <div data-i18n="threshold">Порог размера:</div>
   <div style="margin:6px 0;">
     <input type="number" id="resize_value" value="1" min="1" style="width:80px;">
-    <label style="display:inline;"><input type="radio" name="resize_unit" value="kb"> КБ</label>
-    <label style="display:inline;"><input type="radio" name="resize_unit" value="mb" checked> МБ</label>
+    <label style="display:inline;"><input type="radio" name="resize_unit" value="kb"> KB</label>
+    <label style="display:inline;"><input type="radio" name="resize_unit" value="mb" checked> MB</label>
   </div>
-  <div>Степень уменьшения:</div>
+  <div data-i18n="scale">Степень уменьшения:</div>
   <div style="margin:6px 0;">
     <label style="display:inline;"><input type="radio" name="resize_scale" value="0.75"> 75%</label>
     <label style="display:inline;"><input type="radio" name="resize_scale" value="0.5" checked> 50%</label>
     <label style="display:inline;"><input type="radio" name="resize_scale" value="0.25"> 25%</label>
   </div>
-  <button id="resize_apply" type="button">Применить</button>
-  <button id="resize_cancel" type="button">Отмена</button>
+  <button id="resize_apply" type="button" data-i18n="apply">Применить</button>
+  <button id="resize_cancel" type="button" data-i18n="cancel">Отмена</button>
   <div id="resize_summary" style="margin-top:8px; color:#666;"></div>
 </div>
-<button id="convert" disabled>Конвертировать</button>
+<button id="convert" disabled data-i18n="convert_btn">Конвертировать</button>
 <div id="status"></div>
 <a id="download" style="display:none"></a>
 
 <script>
+// === Словарь переводов ===
+const I18N = {
+  ru: {
+    title: 'Google Keep → Apple Notes (.enex)',
+    drop_line1: '📁 Перетащите файлы сюда',
+    drop_line2: 'или нажмите для выбора · .zip архив или .json + картинки',
+    include_trashed: 'Включить удалённые (корзину)',
+    resize: 'Уменьшить картинки',
+    threshold: 'Порог размера:',
+    scale: 'Степень уменьшения:',
+    apply: 'Применить',
+    cancel: 'Отмена',
+    convert_btn: 'Конвертировать',
+    zip_priority: 'Загружен архив, отдельные файлы игнорируются.',
+    converting: '⏳ Конвертация... (не закрывайте страницу)',
+    apply_hint: 'Нажмите «Применить» для подтверждения.',
+    resized_label: 'Уменьшено картинок: ',
+    done_prefix: '✅ Готово! Обработано ',
+    done_notes_suffix: ' заметок, ',
+    done_atts_suffix: ' вложений, ',
+    server_error: '❌ Не удалось связаться с сервером: ',
+    try_again: 'Попробовать снова',
+    convert_more: 'Конвертировать ещё',
+    err_prefix: 'Ошибка '
+  },
+  en: {
+    title: 'Google Keep → Apple Notes (.enex)',
+    drop_line1: '📁 Drag files here',
+    drop_line2: 'or click to choose · .zip archive or .json + images',
+    include_trashed: 'Include deleted (trash)',
+    resize: 'Resize images',
+    threshold: 'Size threshold:',
+    scale: 'Resize scale:',
+    apply: 'Apply',
+    cancel: 'Cancel',
+    convert_btn: 'Convert',
+    zip_priority: 'Archive uploaded, separate files are ignored.',
+    converting: '⏳ Converting... (do not close the page)',
+    apply_hint: 'Click "Apply" to confirm.',
+    resized_label: 'Images resized: ',
+    done_prefix: '✅ Done! Processed ',
+    done_notes_suffix: ' notes, ',
+    done_atts_suffix: ' attachments, ',
+    server_error: '❌ Cannot reach the server: ',
+    try_again: 'Try again',
+    convert_more: 'Convert more',
+    err_prefix: 'Error '
+  }
+};
+
+let LANG = 'ru';
+
+function t(key) { return I18N[LANG][key]; }
+
+function setLang(lang) {
+  LANG = lang;
+  document.getElementById('lang-ru').classList.toggle('active', lang === 'ru');
+  document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  // обновить сводку resize, если применена
+  if (resizeApplied) resizeSummary.textContent = _resizeSummaryText();
+}
+
 const dropzone = document.getElementById('dropzone');
 const fileinput = document.getElementById('fileinput');
 const filelist = document.getElementById('filelist');
@@ -61,7 +134,7 @@ function renderFiles() {
   filelist.innerHTML = '';
   selected.forEach((f, idx) => {
     const li = document.createElement('li');
-    li.innerHTML = '<span>' + f.name + ' (' + (f.size/1024).toFixed(0) + ' КБ)</span><span class="x" data-i="' + idx + '">✕</span>';
+    li.innerHTML = '<span>' + f.name + ' (' + (f.size/1024).toFixed(0) + ' KB)</span><span class="x" data-i="' + idx + '">✕</span>';
     filelist.appendChild(li);
   });
   filelist.querySelectorAll('.x').forEach(x => x.onclick = e => { selected.splice(+e.target.dataset.i, 1); renderFiles(); refresh(); });
@@ -81,21 +154,21 @@ const resizePanel = document.getElementById('resize_panel');
 const resizeApply = document.getElementById('resize_apply');
 const resizeCancel = document.getElementById('resize_cancel');
 const resizeSummary = document.getElementById('resize_summary');
-let resizeApplied = false;  // применил ли пользователь настройки
+let resizeApplied = false;
 
 function _resizeSummaryText() {
   const v = document.getElementById('resize_value').value || '1';
   const unit = document.querySelector('input[name=resize_unit]:checked').value;
   const scale = document.querySelector('input[name=resize_scale]:checked').value;
   const scalePct = ({'0.75':'75%','0.5':'50%','0.25':'25%'})[scale];
-  return '🖼 Порог >' + v + ' ' + unit.toUpperCase() + ' · масштаб ' + scalePct;
+  return '🖼 >' + v + ' ' + unit.toUpperCase() + ' · ' + scalePct;
 }
 
 resizeCheckbox.onchange = () => {
   if (resizeCheckbox.checked) {
     resizePanel.style.display = 'block';
     resizeApplied = false;
-    resizeSummary.textContent = 'Нажмите «Применить» для подтверждения.';
+    resizeSummary.textContent = t('apply_hint');
   } else {
     resizePanel.style.display = 'none';
     resizeSummary.textContent = '';
@@ -105,7 +178,7 @@ resizeCheckbox.onchange = () => {
 
 resizeApply.onclick = () => {
   const v = parseInt(document.getElementById('resize_value').value, 10);
-  if (!v || v < 1) return;  // защита
+  if (!v || v < 1) return;
   resizeApplied = true;
   resizePanel.style.display = 'none';
   resizeSummary.textContent = _resizeSummaryText();
@@ -122,7 +195,7 @@ convertBtn.onclick = async () => {
   let files = selected;
   if (hasZip) {
     files = selected.filter(f => f.name.toLowerCase().endsWith('.zip'));
-    status.innerHTML = '<small>Загружен архив, отдельные файлы игнорируются.</small>';
+    status.innerHTML = '<small>' + t('zip_priority') + '</small>';
   }
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
@@ -137,7 +210,7 @@ convertBtn.onclick = async () => {
     fd.append('resize_scale', scale);
   }
   convertBtn.disabled = true;
-  status.innerHTML = '⏳ Конвертация... (не закрывайте страницу)';
+  status.innerHTML = t('converting');
   try {
     const resp = await fetch('/convert', { method: 'POST', body: fd });
     if (resp.ok && resp.headers.get('Content-Type').includes('octet-stream')) {
@@ -148,15 +221,15 @@ convertBtn.onclick = async () => {
       const notes = resp.headers.get('X-Notes') || '?';
       const atts = resp.headers.get('X-Attachments') || '?';
       const resized = parseInt(resp.headers.get('X-Resized') || '0', 10);
-      const resizedLine = resized > 0 ? '<br>🖼 Уменьшено картинок: ' + resized : '';
-      status.innerHTML = '<span class="ok">✅ Готово! Обработано ' + notes + ' заметок, ' + atts + ' вложений, ' + (blob.size/1048576).toFixed(1) + ' МБ' + resizedLine + '</span><br><button onclick="location.reload()">Конвертировать ещё</button>';
+      const resizedLine = resized > 0 ? '<br>🖼 ' + t('resized_label') + resized : '';
+      status.innerHTML = '<span class="ok">' + t('done_prefix') + notes + t('done_notes_suffix') + atts + t('done_atts_suffix') + (blob.size/1048576).toFixed(1) + ' MB' + resizedLine + '</span><br><button onclick="location.reload()">' + t('convert_more') + '</button>';
     } else {
-      let msg = 'Ошибка ' + resp.status;
+      let msg = t('err_prefix') + resp.status;
       try { const j = await resp.json(); msg = j.error + (j.detail ? ' (' + j.detail + ')' : ''); } catch (_) {}
-      status.innerHTML = '<span class="error">❌ ' + msg + '</span><br><button onclick="location.reload()">Попробовать снова</button>';
+      status.innerHTML = '<span class="error">❌ ' + msg + '</span><br><button onclick="location.reload()">' + t('try_again') + '</button>';
     }
   } catch (e) {
-    status.innerHTML = '<span class="error">❌ Не удалось связаться с сервером: ' + e + '</span>';
+    status.innerHTML = '<span class="error">' + t('server_error') + e + '</span>';
   }
   convertBtn.disabled = false;
 };

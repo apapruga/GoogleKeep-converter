@@ -61,17 +61,25 @@ class _ClientError(Exception):
 
 
 def parse_multipart(body, content_type):
-    """Разобрать multipart-тело. Вернуть (list[dict(name,data)], include_trashed:bool).
-    Каждое поле-файл: {'name':..., 'data':bytes}. Поле include_trashed -> bool."""
+    """Разобрать multipart-тело. Вернуть (files, options).
+    files: list[{'name':..., 'data':bytes}].
+    options: dict с include_trashed, resize_enabled, resize_threshold, resize_scale."""
     files = []
-    include_trashed = False
-    # граница
+    options = {
+        "include_trashed": False,
+        "resize_enabled": False,
+        "resize_threshold": 0,
+        "resize_scale": 0.5,
+    }
     if "boundary=" not in content_type:
-        return files, include_trashed
+        return files, options
     boundary = content_type.split("boundary=", 1)[1].strip()
     if boundary.startswith('"') and boundary.endswith('"'):
         boundary = boundary[1:-1]
     delim = b"--" + boundary.encode()
+
+    text_fields = {}  # name -> data bytes
+
     chunks = body.split(delim)
     for chunk in chunks:
         if not chunk or chunk == b"--" or chunk == b"--\r\n" or chunk.startswith(b"--"):
@@ -94,9 +102,27 @@ def parse_multipart(body, content_type):
                         filename = part[9:].strip('"')
         if filename is not None:
             files.append({"name": filename, "data": data})
-        elif name == "include_trashed":
-            include_trashed = data.decode("utf-8", "replace").strip() in ("1", "true", "on")
-    return files, include_trashed
+        elif name is not None:
+            text_fields[name] = data
+
+    # разбор текстовых полей в options
+    def _str(name):
+        return text_fields.get(name, b"").decode("utf-8", "replace").strip()
+
+    if _str("include_trashed") in ("1", "true", "on"):
+        options["include_trashed"] = True
+    if _str("resize_enabled") in ("1", "true", "on"):
+        options["resize_enabled"] = True
+    try:
+        options["resize_threshold"] = int(_str("resize_threshold"))
+    except ValueError:
+        pass
+    try:
+        options["resize_scale"] = float(_str("resize_scale")) if _str("resize_scale") else 0.5
+    except ValueError:
+        pass
+
+    return files, options
 
 
 def main(argv=None):

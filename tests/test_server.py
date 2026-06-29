@@ -17,6 +17,33 @@ def test_has_resize_deps_returns_bool():
     assert result is True or result is False
 
 
+def test_parse_multipart_resize_disabled_by_default():
+    files, options = server.parse_multipart(b"--b--\r\n", "multipart/form-data; boundary=b")
+    assert options["include_trashed"] is False
+    assert options["resize_enabled"] is False
+    assert options["resize_threshold"] == 0
+    assert options["resize_scale"] == 0.5
+
+
+def test_parse_multipart_resize_fields():
+    body = (
+        b"--keepbnd\r\n"
+        b'Content-Disposition: form-data; name="resize_enabled"\r\n\r\n'
+        b"1\r\n"
+        b"--keepbnd\r\n"
+        b'Content-Disposition: form-data; name="resize_threshold"\r\n\r\n'
+        b"1048576\r\n"
+        b"--keepbnd\r\n"
+        b'Content-Disposition: form-data; name="resize_scale"\r\n\r\n'
+        b"0.25\r\n"
+        b"--keepbnd--\r\n"
+    )
+    files, options = server.parse_multipart(body, "multipart/form-data; boundary=keepbnd")
+    assert options["resize_enabled"] is True
+    assert options["resize_threshold"] == 1048576
+    assert options["resize_scale"] == 0.25
+
+
 def test_sanitize_filename_strips_parent_dir():
     assert server.sanitize_filename("../evil.json") == "evil.json"
     assert server.sanitize_filename("a/../b.json") == "b.json"

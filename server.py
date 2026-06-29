@@ -46,6 +46,16 @@ def extract_zip_to(zip_bytes, dest):
     return root if root else dest
 
 
+def has_resize_deps():
+    """True, если доступны Pillow и pillow-heif."""
+    try:
+        import PIL  # noqa: F401
+        import pillow_heif  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 class _ClientError(Exception):
     """Ошибка, которую нужно вернуть клиенту как 400."""
 

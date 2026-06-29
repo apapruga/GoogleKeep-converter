@@ -12,6 +12,11 @@ def test_sanitize_filename_plain():
     assert server.sanitize_filename("картинка (1).jpg") == "картинка (1).jpg"
 
 
+def test_has_resize_deps_returns_bool():
+    result = server.has_resize_deps()
+    assert result is True or result is False
+
+
 def test_sanitize_filename_strips_parent_dir():
     assert server.sanitize_filename("../evil.json") == "evil.json"
     assert server.sanitize_filename("a/../b.json") == "b.json"

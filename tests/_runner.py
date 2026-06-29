@@ -9,13 +9,19 @@ def run(module):
         if name.startswith("test_") and callable(fn)
     )
     failed = 0
+    skipped = 0
     for name, fn in tests:
         try:
-            fn()
-            print(f"PASS {name}")
+            result = fn()
+            if result == "skip":
+                skipped += 1
+                print(f"SKIP {name}")
+            else:
+                print(f"PASS {name}")
         except Exception:
             failed += 1
             print(f"FAIL {name}")
             traceback.print_exc()
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    run_count = len(tests) - skipped
+    print(f"\n{run_count - failed}/{run_count} passed, {skipped} skipped")
     sys.exit(1 if failed else 0)
